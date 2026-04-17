@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<plugin>
+<id>export_tune</id>
+<version>3</version>
+<name>ExportTune</name>
+<description>[EXPERIMENTAL] Export calibration tables, datalog and DTCs to JSON for AI analysis. Import AI-generated change-sets back into the calibration. Not affiliated with Hondata Inc. Use at your own risk.</description>
+<author>cybertza + Claude</author>
+<url>https://github.com/cybertza/flashpro-export-tune</url>
+<license>MIT License</license>
+<depends></depends>
+</plugin>
