@@ -458,7 +458,8 @@ local function apply_change(t, change, dry_run)
       local old_str = ok_old and string.format("%.4f", ov) or "?"
       print(string.format("    [%2d] %s -> %.4f", i, old_str, nv))
       if not dry_run then
-        local ok, err = pcall(function() t:setvalue(i, nv) end)
+        -- setvalue argument order: (value, index)
+        local ok, err = pcall(function() t:setvalue(nv, i) end)
         if not ok then
           print("    ERROR applying index " .. i .. ": " .. tostring(err))
           return false
@@ -497,7 +498,8 @@ local function apply_change(t, change, dry_run)
           return false
         end
         if not dry_run then
-          local ok, err = pcall(function() t:setvalue(c, r, nv) end)
+          -- setvalue argument order: (value, col, row)
+          local ok, err = pcall(function() t:setvalue(nv, c, r) end)
           if not ok then
             print(string.format("  ERROR at [%d,%d]: %s", c, r, tostring(err)))
             return false
