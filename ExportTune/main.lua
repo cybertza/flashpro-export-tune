@@ -830,6 +830,105 @@ local function do_import_changes()
   print("============================================================")
 end
 
+-- ── debug: dump a global table's keys/values ─────────────────────────────────
+
+local INTERESTING_GLOBALS = {
+  "TEdit","TPanel","TButton","TLabel","TRadioButton","TCheckBox",
+  "TForm","TMemo","TListBox","TComboBox","TGroupBox","TText",
+  "Application","Device","ECU",
+  "Calibration","DatalogManager","SensorList","ErrorCodeList",
+}
+
+local function dump_global(name)
+  local val = _G[name]
+  if val == nil then
+    print("  [" .. name .. "] = nil (not in globals)")
+    return
+  end
+  local t = type(val)
+  print("  [" .. name .. "] type=" .. t)
+  if t == "table" then
+    local keys = {}
+    for k in pairs(val) do keys[#keys+1] = k end
+    table.sort(keys, function(a,b) return tostring(a) < tostring(b) end)
+    if #keys == 0 then
+      print("    (empty table)")
+    else
+      for _,k in ipairs(keys) do
+        local v = val[k]
+        local vt = type(v)
+        local vs = vt == "function" and "function()"
+               or  vt == "table"    and "{...} #"..tostring(#v)
+               or  tostring(v)
+        print(string.format("    .%-30s %s (%s)", tostring(k), vs, vt))
+      end
+    end
+    -- also check metatable
+    local mt = getmetatable(val)
+    if mt then
+      print("    [has metatable]")
+      if type(mt) == "table" then
+        for k,v in pairs(mt) do
+          print(string.format("    MT.%-28s %s (%s)", tostring(k), tostring(v), type(v)))
+        end
+      end
+    end
+  elseif t == "userdata" then
+    print("    (userdata -- try pcall methods on it)")
+    local mt = getmetatable(val)
+    if mt and type(mt) == "table" then
+      for k,v in pairs(mt) do
+        print(string.format("    MT.%-28s %s (%s)", tostring(k), tostring(v), type(v)))
+      end
+    end
+  end
+end
+
+local function do_debug()
+  local target = InputQuery("ExportTune - Debug",
+    "Dump a Lua global to console.\n\n" ..
+    "Known interesting globals:\n" ..
+    "  TEdit  TPanel  TButton  TLabel  TRadioButton\n" ..
+    "  TCheckBox  TForm  TMemo  TText\n" ..
+    "  Application  Device  ECU\n" ..
+    "  Calibration  DatalogManager  SensorList\n\n" ..
+    "Enter global name (or * to dump all known):", "TEdit")
+  if not target then print("Debug cancelled."); return end
+
+  banner("Debug: Global Dump")
+  print("")
+
+  local buf = {}
+  local orig_print = print
+  print = function(...)
+    local parts = {}
+    for i = 1, select('#', ...) do parts[i] = tostring(select(i, ...)) end
+    local line = table.concat(parts, '\t')
+    orig_print(line)
+    buf[#buf+1] = line
+  end
+
+  if target == "*" then
+    for _,name in ipairs(INTERESTING_GLOBALS) do
+      dump_global(name)
+      print("")
+    end
+  else
+    dump_global(target)
+  end
+
+  print = orig_print
+
+  local MAX = 80
+  local out = buf
+  if #buf > MAX then
+    out = {}
+    for i=1,MAX do out[i]=buf[i] end
+    out[#out+1] = "... (" .. (#buf-MAX) .. " more lines in console)"
+  end
+  ShowMessage("ExportTune - Debug: " .. target .. "\n\n" .. table.concat(out,'\n'))
+end
+
 -- ── main entry point — dialog menu ────────────────────────────────────────────
 
 function main()
@@ -848,7 +947,8 @@ function main()
     "  3 = Datalog Only\n" ..
     "  4 = Health Check  (console, no file)\n" ..
     "  5 = Preview Import  (dry run tune_import.json)\n" ..
-    "  6 = Apply Import  (WRITES to calibration)\n\n" ..
+    "  6 = Apply Import  (WRITES to calibration)\n" ..
+    "  7 = Debug  (dump Lua globals/VCL objects)\n\n" ..
     "Enter number (or cancel to abort):",
     VERSION, cal_name, dl_count)
 
@@ -880,10 +980,11 @@ function main()
       print("Import cancelled.")
       ShowMessage("Import cancelled — calibration unchanged.")
     end
+  elseif choice == "7" then do_debug()
   elseif choice == nil then
     print("Cancelled.")
   else
-    ShowMessage("Invalid choice '" .. tostring(choice) .. "' — enter 1 to 6.")
+    ShowMessage("Invalid choice '" .. tostring(choice) .. "' — enter 1 to 7.")
   end
 end
 
