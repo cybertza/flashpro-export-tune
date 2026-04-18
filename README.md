@@ -91,6 +91,8 @@ If FlashPro supports it, the plugin will export it.
 | **preview_import** | Dry-run: shows what `tune_import.json` would change | _(console only)_ |
 | **import_changes** | Applies `tune_import.json` changes to the calibration | _(modifies cal)_ |
 
+<img width="1077" height="575" alt="image" src="https://github.com/user-attachments/assets/eb5445e2-8b6e-4a7c-912f-f1a7b09796f2" />
+
 Output files are written to the **same folder as your calibration file**.
 
 ---
