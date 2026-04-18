@@ -788,11 +788,39 @@ end
 local function do_preview_import()
   banner("Preview Import (dry run)")
   print("")
+
+  -- capture print() output into a buffer while run_import executes
+  local buf = {}
+  local orig_print = print
+  print = function(...)
+    local parts = {}
+    for i = 1, select('#', ...) do parts[i] = tostring(select(i, ...)) end
+    local line = table.concat(parts, '\t')
+    orig_print(line)       -- still goes to console
+    buf[#buf+1] = line
+  end
+
   run_import(true)
+
+  print = orig_print       -- restore
+
   print("")
   print("  DRY RUN complete  (calibration unchanged)")
   print("============================================================")
-  ShowMessage("ExportTune: Preview complete.\nCheck the output console for change details.\nNo calibration changes were made.")
+
+  -- trim to 60 lines so the dialog stays readable
+  local MAX_LINES = 60
+  local truncated = #buf > MAX_LINES
+  if truncated then
+    local kept = {}
+    for i = 1, MAX_LINES do kept[i] = buf[i] end
+    kept[#kept+1] = "... (" .. (#buf - MAX_LINES) .. " more lines — see console)"
+    buf = kept
+  end
+
+  ShowMessage("ExportTune — Import Preview (dry run)\n" ..
+    "No changes applied.\n\n" ..
+    table.concat(buf, '\n'))
 end
 
 local function do_import_changes()
