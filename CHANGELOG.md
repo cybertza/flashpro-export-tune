@@ -1,5 +1,9 @@
 # Changelog
 
+## v4.1 (2026-04-18)
+- Fixed `apply_change()` incorrectly skipping all tables due to `t:readonly()` returning true even for writable tables — readonly check removed, pcall handles actual write failures
+- Fixed em dash encoding garble in console output (`â€"`) — replaced with plain hyphen
+
 ## v4.0 (2026-04-18)
 - Replaced 6 separate menu entries with a single `main()` that shows an `InputQuery` dialog menu
 - Dialog shows current calibration filename and datalog count as context before you choose

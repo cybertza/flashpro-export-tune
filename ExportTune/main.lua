@@ -9,7 +9,7 @@
 
 local Constants = require("constants")
 
-local VERSION = "4.0"
+local VERSION = "4.1"
 
 -- ── output path ───────────────────────────────────────────────────────────────
 
@@ -409,11 +409,6 @@ local function apply_change(t, change, dry_run)
   local name = change["name"] or "?"
   local kind = change["kind"] or ""
 
-  if t:readonly() then
-    print("  SKIP  [readonly] " .. name)
-    return false
-  end
-
   if kind == "Parameter" then
     local new_val = tonumber(change["value"])
     if not new_val then
@@ -554,7 +549,7 @@ local function run_import(dry_run)
   print(string.format("Description : %s", desc))
   print(string.format("Changes     : %d", #changes))
   if dry_run then
-    print("Mode        : DRY RUN (preview only — no changes applied)")
+    print("Mode        : DRY RUN (preview only - no changes applied)")
   else
     print("Mode        : LIVE (changes will be written to calibration)")
   end
