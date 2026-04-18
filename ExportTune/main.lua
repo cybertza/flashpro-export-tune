@@ -924,7 +924,7 @@ local function do_debug()
       end
     end
   elseif target:sub(1,5) == "call:" then
-    -- try calling a constructor: e.g. "call:TEdit"
+    -- try calling a constructor and dump the instance: e.g. "call:TEdit"
     local cname = target:sub(6)
     local cls = _G[cname]
     if cls == nil then
@@ -932,18 +932,52 @@ local function do_debug()
     else
       print("  Attempting " .. cname .. "(nil) ...")
       local ok, result = pcall(function() return cls(nil) end)
+      if not ok then
+        print("  ERROR with nil: " .. tostring(result))
+        print("  Attempting " .. cname .. "() ...")
+        ok, result = pcall(function() return cls() end)
+      end
       if ok then
-        print("  Result type: " .. type(result))
-        dump_global_val(cname .. "(nil)", result)
+        print("  SUCCESS. Result type: " .. type(result))
+        -- dump keys directly on the object
+        if type(result) == "table" then
+          local keys = {}
+          for k in pairs(result) do keys[#keys+1] = tostring(k) end
+          table.sort(keys)
+          print("  Direct keys (" .. #keys .. "):")
+          for _,k in ipairs(keys) do
+            local v = result[k]
+            print(string.format("    .%-30s %s", k, type(v)))
+          end
+        end
+        -- dump metatable of instance
+        local mt = getmetatable(result)
+        if mt then
+          print("  Instance metatable:")
+          if type(mt) == "table" then
+            local mkeys = {}
+            for k in pairs(mt) do mkeys[#mkeys+1] = tostring(k) end
+            table.sort(mkeys)
+            for _,k in ipairs(mkeys) do
+              local v = mt[k]
+              print(string.format("    MT.%-28s %s  %s", k, type(v), tostring(v):sub(1,40)))
+            end
+            -- if __index points to another table, dump that too (where methods live)
+            if type(mt.__index) == "table" then
+              print("  MT.__index methods:")
+              local ikeys = {}
+              for k in pairs(mt.__index) do ikeys[#ikeys+1] = tostring(k) end
+              table.sort(ikeys)
+              for _,k in ipairs(ikeys) do
+                print(string.format("    .%-30s %s", k, type(mt.__index[k])))
+              end
+            end
+          end
+        else
+          print("  (no metatable on instance)")
+        end
       else
         print("  ERROR: " .. tostring(result))
-        print("  Attempting " .. cname .. "() ...")
-        local ok2, r2 = pcall(function() return cls() end)
-        if ok2 then
-          print("  Result type: " .. type(r2))
-        else
-          print("  ERROR: " .. tostring(r2))
-        end
       end
     end
   else
