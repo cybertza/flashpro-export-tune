@@ -865,6 +865,14 @@ function main()
       "Ensure you have a backup of:\n" .. (Calibration:loaded() and Calibration:filename() or "your .fpcal file") .. "\n\n" ..
       "AI-generated changes must be reviewed by a\n" ..
       "qualified tuner before driving the vehicle.\n\n" ..
+      "---\n" ..
+      "ExportTune is free and open source.\n" ..
+      "If this saved you time, or you charged a customer\n" ..
+      "for a tune using it -- please consider a small\n" ..
+      "donation to support further development:\n" ..
+      "github.com/sponsors/cybertza\n" ..
+      "We trust you. That's why there's no paywall. :)\n" ..
+      "---\n\n" ..
       "Type YES to continue:", "")
     if confirm == "YES" then
       do_import_changes()
