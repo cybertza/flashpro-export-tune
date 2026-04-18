@@ -834,36 +834,28 @@ end
 
 local INTERESTING_GLOBALS = {
   "TEdit","TPanel","TButton","TLabel","TRadioButton","TCheckBox",
-  "TForm","TMemo","TListBox","TComboBox","TGroupBox","TText",
+  "TForm","TMemo","TListBox","TComboBox","TGroupBox","TText","TBitBtn",
   "Application","Device","ECU",
   "Calibration","DatalogManager","SensorList","ErrorCodeList",
+  "MainForm","Form","Screen","Owner",
 }
 
-local function dump_global(name)
-  local val = _G[name]
-  if val == nil then
-    print("  [" .. name .. "] = nil (not in globals)")
-    return
-  end
+local function dump_global_val(label, val)
+  if val == nil then print("  [" .. label .. "] = nil"); return end
   local t = type(val)
-  print("  [" .. name .. "] type=" .. t)
-  if t == "table" then
-    local keys = {}
-    for k in pairs(val) do keys[#keys+1] = k end
-    table.sort(keys, function(a,b) return tostring(a) < tostring(b) end)
-    if #keys == 0 then
-      print("    (empty table)")
-    else
+  print("  [" .. label .. "] type=" .. t)
+  if t == "table" or t == "userdata" then
+    if t == "table" then
+      local keys = {}
+      for k in pairs(val) do keys[#keys+1] = k end
+      table.sort(keys, function(a,b) return tostring(a) < tostring(b) end)
       for _,k in ipairs(keys) do
         local v = val[k]
         local vt = type(v)
-        local vs = vt == "function" and "function()"
-               or  vt == "table"    and "{...} #"..tostring(#v)
-               or  tostring(v)
+        local vs = vt=="function" and "function()" or vt=="table" and "{...}" or tostring(v)
         print(string.format("    .%-30s %s (%s)", tostring(k), vs, vt))
       end
     end
-    -- also check metatable
     local mt = getmetatable(val)
     if mt then
       print("    [has metatable]")
@@ -873,15 +865,16 @@ local function dump_global(name)
         end
       end
     end
-  elseif t == "userdata" then
-    print("    (userdata -- try pcall methods on it)")
-    local mt = getmetatable(val)
-    if mt and type(mt) == "table" then
-      for k,v in pairs(mt) do
-        print(string.format("    MT.%-28s %s (%s)", tostring(k), tostring(v), type(v)))
-      end
-    end
   end
+end
+
+local function dump_global(name)
+  local val = _G[name]
+  if val == nil then
+    print("  [" .. name .. "] = nil (not in globals)")
+    return
+  end
+  dump_global_val(name, val)
 end
 
 local function do_debug()
@@ -889,10 +882,14 @@ local function do_debug()
     "Dump a Lua global to console.\n\n" ..
     "Known interesting globals:\n" ..
     "  TEdit  TPanel  TButton  TLabel  TRadioButton\n" ..
-    "  TCheckBox  TForm  TMemo  TText\n" ..
+    "  TCheckBox  TForm  TMemo  TText  TBitBtn\n" ..
     "  Application  Device  ECU\n" ..
     "  Calibration  DatalogManager  SensorList\n\n" ..
-    "Enter global name (or * to dump all known):", "TEdit")
+    "Special targets:\n" ..
+    "  *            dump all known globals\n" ..
+    "  globals      list everything in _G\n" ..
+    "  call:TEdit   try to instantiate TEdit(nil)\n\n" ..
+    "Enter target:", "globals")
   if not target then print("Debug cancelled."); return end
 
   banner("Debug: Global Dump")
@@ -912,6 +909,42 @@ local function do_debug()
     for _,name in ipairs(INTERESTING_GLOBALS) do
       dump_global(name)
       print("")
+    end
+  elseif target == "globals" then
+    -- scan everything in _G and list non-standard entries
+    print("  Scanning all _G keys...")
+    local keys = {}
+    for k in pairs(_G) do keys[#keys+1] = tostring(k) end
+    table.sort(keys)
+    for _,k in ipairs(keys) do
+      local v = _G[k]
+      local t = type(v)
+      if t ~= "function" or k:sub(1,1) ~= k:sub(1,1):lower() then
+        print(string.format("  %-32s %s", k, t))
+      end
+    end
+  elseif target:sub(1,5) == "call:" then
+    -- try calling a constructor: e.g. "call:TEdit"
+    local cname = target:sub(6)
+    local cls = _G[cname]
+    if cls == nil then
+      print("  " .. cname .. " not found in globals")
+    else
+      print("  Attempting " .. cname .. "(nil) ...")
+      local ok, result = pcall(function() return cls(nil) end)
+      if ok then
+        print("  Result type: " .. type(result))
+        dump_global_val(cname .. "(nil)", result)
+      else
+        print("  ERROR: " .. tostring(result))
+        print("  Attempting " .. cname .. "() ...")
+        local ok2, r2 = pcall(function() return cls() end)
+        if ok2 then
+          print("  Result type: " .. type(r2))
+        else
+          print("  ERROR: " .. tostring(r2))
+        end
+      end
     end
   else
     dump_global(target)
