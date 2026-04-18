@@ -9,7 +9,7 @@
 
 local Constants = require("constants")
 
-local VERSION = "3.0"
+local VERSION = "4.0"
 
 -- ── output path ───────────────────────────────────────────────────────────────
 
@@ -698,16 +698,20 @@ local function done(path)
   print("============================================================")
   print("  DONE  -->  " .. path)
   print("============================================================")
+  ShowMessage("ExportTune: Export complete!\n\n" .. path)
 end
 
--- ── entry points ──────────────────────────────────────────────────────────────
+-- ── action implementations ────────────────────────────────────────────────────
 
-function main()
+local function do_full_export()
   banner("Full Export")
   local OUT = get_out_file("tune_export")
   print("Output: " .. OUT .. "\n")
   local f = io.open(OUT, "w")
-  if not f then print("ERROR: cannot write " .. OUT); return end
+  if not f then
+    ShowMessage("ERROR: Cannot write to:\n" .. OUT)
+    return
+  end
   write_header(f)
   write_calibration(f, true)
   write_dtcs(f)
@@ -717,12 +721,12 @@ function main()
   done(OUT)
 end
 
-function export_cal()
+local function do_export_cal()
   banner("Export Calibration Only")
   local OUT = get_out_file("tune_export_cal")
   print("Output: " .. OUT .. "\n")
   local f = io.open(OUT, "w")
-  if not f then print("ERROR: cannot write " .. OUT); return end
+  if not f then ShowMessage("ERROR: Cannot write to:\n" .. OUT); return end
   write_header(f)
   write_calibration(f, true)
   write_dtcs(f)
@@ -731,12 +735,12 @@ function export_cal()
   done(OUT)
 end
 
-function export_datalog()
+local function do_export_datalog()
   banner("Export Datalog Only")
   local OUT = get_out_file("tune_export_datalog")
   print("Output: " .. OUT .. "\n")
   local f = io.open(OUT, "w")
-  if not f then print("ERROR: cannot write " .. OUT); return end
+  if not f then ShowMessage("ERROR: Cannot write to:\n" .. OUT); return end
   write_header(f)
   if Calibration:loaded() then
     f:write('"calibration_file":' .. esc(Calibration:filename()) .. ',\n')
@@ -751,7 +755,7 @@ function export_datalog()
   done(OUT)
 end
 
-function health_check()
+local function do_health_check()
   banner("Quick Health Check")
   print("")
   print_cal_summary()
@@ -777,45 +781,98 @@ function health_check()
     end
   end
   print("")
-  print("============================================================")
-  print("  Health check complete  (no file written)")
+  print("  Health check complete (no file written)")
   print("============================================================")
 end
 
--- Preview changes without writing anything
-function preview_import()
+local function do_preview_import()
   banner("Preview Import (dry run)")
   print("")
   run_import(true)
   print("")
-  print("============================================================")
   print("  DRY RUN complete  (calibration unchanged)")
   print("============================================================")
+  ShowMessage("ExportTune: Preview complete.\nCheck the output console for change details.\nNo calibration changes were made.")
 end
 
--- Apply changes from tune_import.json to the loaded calibration
-function import_changes()
-  banner("Import Changes")
+local function do_import_changes()
+  banner("Import Changes  [EXPERIMENTAL]")
   print("")
-  print("  !! EXPERIMENTAL -- WRITE OPERATION !!")
-  print("  This will modify your loaded calibration.")
+  print("  !! WRITE OPERATION -- calibration will be modified !!")
   print("  Ensure you have a backup of your .fpcal file.")
-  print("  Run 'preview_import' first to verify all changes.")
-  print("  AI-generated changes must be reviewed by a qualified")
-  print("  tuner before use on a vehicle.")
   print("")
   run_import(false)
   print("")
-  print("============================================================")
   print("  Import complete")
   print("============================================================")
 end
 
-return {
-  main           = main,
-  export_cal     = export_cal,
-  export_datalog = export_datalog,
-  health_check   = health_check,
-  preview_import = preview_import,
-  import_changes = import_changes,
-}
+-- ── main entry point — dialog menu ────────────────────────────────────────────
+
+function main()
+  local cal_name = Calibration:loaded()
+    and Calibration:filename():match("[^\\]+$") or "(no calibration)"
+  local dl_count = DatalogManager:count()
+
+  local prompt = string.format(
+    "ExportTune v%s  [EXPERIMENTAL]\n" ..
+    "github.com/cybertza/flashpro-export-tune\n\n" ..
+    "Calibration : %s\n" ..
+    "Datalogs    : %d loaded\n\n" ..
+    "Select action:\n" ..
+    "  1 = Full Export  (calibration + datalog + DTCs)\n" ..
+    "  2 = Calibration Only\n" ..
+    "  3 = Datalog Only\n" ..
+    "  4 = Health Check  (console, no file)\n" ..
+    "  5 = Preview Import  (dry run tune_import.json)\n" ..
+    "  6 = Apply Import  (WRITES to calibration)\n\n" ..
+    "Enter number (or cancel to abort):",
+    VERSION, cal_name, dl_count)
+
+  local choice = InputQuery("ExportTune", prompt, "1")
+
+  if     choice == "1" then do_full_export()
+  elseif choice == "2" then do_export_cal()
+  elseif choice == "3" then do_export_datalog()
+  elseif choice == "4" then do_health_check()
+  elseif choice == "5" then do_preview_import()
+  elseif choice == "6" then
+    local confirm = InputQuery("ExportTune – Confirm Write",
+      "!! This will MODIFY your calibration !!\n\n" ..
+      "Ensure you have a backup of:\n" .. (Calibration:loaded() and Calibration:filename() or "your .fpcal file") .. "\n\n" ..
+      "AI-generated changes must be reviewed by a\n" ..
+      "qualified tuner before driving the vehicle.\n\n" ..
+      "Type YES to continue:", "")
+    if confirm == "YES" then
+      do_import_changes()
+    else
+      print("Import cancelled.")
+      ShowMessage("Import cancelled — calibration unchanged.")
+    end
+  elseif choice == nil then
+    print("Cancelled.")
+  else
+    ShowMessage("Invalid choice '" .. tostring(choice) .. "' — enter 1 to 6.")
+  end
+end
+
+-- ── event callbacks ───────────────────────────────────────────────────────────
+
+-- Auto-export datalog stats whenever a new datalog is opened
+function OnDatalogOpen(datalog)
+  local fname = datalog:filename() or "datalog"
+  print("[ExportTune] Datalog opened: " .. fname)
+  print("[ExportTune] Run ExportTune from the Plugins menu to export with the new datalog.")
+end
+
+-- Invalidate the calibration name→index cache when cal changes
+function OnCalibrationOpen(calibration)
+  cal_index_cache = nil
+  print("[ExportTune] Calibration opened — index cache cleared.")
+end
+
+function OnCalibrationNew(calibration)
+  cal_index_cache = nil
+end
+
+return { main = main }

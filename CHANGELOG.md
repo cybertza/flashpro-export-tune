@@ -1,5 +1,14 @@
 # Changelog
 
+## v4.0 (2026-04-18)
+- Replaced 6 separate menu entries with a single `main()` that shows an `InputQuery` dialog menu
+- Dialog shows current calibration filename and datalog count as context before you choose
+- Action 6 (Apply Import) requires typing `YES` in a second confirmation dialog
+- `ShowMessage` popup on export completion and on import errors
+- Added `OnDatalogOpen`, `OnCalibrationOpen`, `OnCalibrationNew` event callbacks
+- `OnCalibrationOpen/New` invalidates the name→index cache automatically
+- `setvalue` argument order corrected to `(value, index)` per official API docs
+
 ## v3.0 (2026-04-17)
 - Added `preview_import` and `import_changes` entry points
 - Built-in lightweight JSON parser (no external dependencies)
