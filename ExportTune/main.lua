@@ -900,6 +900,18 @@ local function do_import_changes()
   print("============================================================")
 end
 
+-- ── clipboard helper (Windows clip.exe) ──────────────────────────────────────
+
+local function copy_to_clip(text)
+  local ok, h = pcall(io.popen, 'clip', 'w')
+  if ok and h then
+    h:write(text)
+    h:close()
+    return true
+  end
+  return false
+end
+
 -- ── debug: dump a global table's keys/values ─────────────────────────────────
 
 local INTERESTING_GLOBALS = {
@@ -908,6 +920,7 @@ local INTERESTING_GLOBALS = {
   "Application","Device","ECU",
   "Calibration","DatalogManager","SensorList","ErrorCodeList",
   "MainForm","Form","Screen","Owner",
+  "Clipboard","TClipboard",
 }
 
 local function dump_global_val(label, val)
@@ -953,12 +966,15 @@ local function do_debug()
     "Known interesting globals:\n" ..
     "  TEdit  TPanel  TButton  TLabel  TRadioButton\n" ..
     "  TCheckBox  TForm  TMemo  TText  TBitBtn\n" ..
-    "  Application  Device  ECU\n" ..
+    "  Application  Device  ECU  Clipboard  TClipboard\n" ..
     "  Calibration  DatalogManager  SensorList\n\n" ..
     "Special targets:\n" ..
     "  *            dump all known globals\n" ..
     "  globals      list everything in _G\n" ..
+    "  dialogs      probe all dialog/input API variants\n" ..
+    "  clipboard    probe clipboard API access\n" ..
     "  call:TEdit   try to instantiate TEdit(nil)\n\n" ..
+    "Output is printed to console AND copied to clipboard.\n\n" ..
     "Enter target:", "globals")
   if not target then print("Debug cancelled."); return end
 
@@ -981,7 +997,6 @@ local function do_debug()
       print("")
     end
   elseif target == "globals" then
-    -- scan everything in _G and list non-standard entries
     print("  Scanning all _G keys...")
     local keys = {}
     for k in pairs(_G) do keys[#keys+1] = tostring(k) end
@@ -993,6 +1008,76 @@ local function do_debug()
         print(string.format("  %-32s %s", k, t))
       end
     end
+
+  elseif target == "dialogs" then
+    -- Probe every known dialog/input API variant
+    local candidates = {
+      "InputQuery", "InputBox", "ShowMessage", "ShowMessageFmt",
+      "MessageDlg", "MessageDlgPos", "MessageDlgPosHelp",
+      "CreateMessageDialog", "QuestionDlg",
+      "TaskMessageDlg", "TaskMessageDlgPos",
+      "SelectDirectory", "PromptForFileName",
+    }
+    print("  Probing dialog/input API variants...")
+    for _,name in ipairs(candidates) do
+      local v = _G[name]
+      if v == nil then
+        print(string.format("  %-30s MISSING", name))
+      else
+        print(string.format("  %-30s %s", name, type(v)))
+      end
+    end
+    print("")
+    print("  Testing InputQuery('Test','Probe','ok') ...")
+    local ok, result = pcall(InputQuery, "Test", "Probe", "ok")
+    if ok then
+      print("  InputQuery returned: " .. tostring(result))
+    else
+      print("  InputQuery ERROR: " .. tostring(result))
+    end
+    print("")
+    print("  Testing InputBox('Test','Probe','ok') ...")
+    local ib = _G["InputBox"]
+    if ib then
+      local ok2, r2 = pcall(ib, "Test", "Probe", "ok")
+      if ok2 then print("  InputBox returned: " .. tostring(r2))
+      else        print("  InputBox ERROR: " .. tostring(r2)) end
+    else
+      print("  InputBox: not available")
+    end
+
+  elseif target == "clipboard" then
+    print("  Probing clipboard access...")
+    -- 1. Check for Clipboard global (VCL TClipboard singleton)
+    local cb = _G["Clipboard"]
+    print("  Clipboard global: " .. type(cb))
+    if cb then dump_global_val("Clipboard", cb) end
+    print("")
+    local tc = _G["TClipboard"]
+    print("  TClipboard class: " .. type(tc))
+    if tc then dump_global_val("TClipboard", tc) end
+    print("")
+    -- 2. Try clip.exe via io.popen
+    print("  Testing clip.exe via io.popen...")
+    local test_text = "ExportTune clipboard test"
+    local clipped = copy_to_clip(test_text)
+    if clipped then
+      print("  clip.exe: SUCCESS — '" .. test_text .. "' sent to clipboard")
+    else
+      print("  clip.exe: FAILED — io.popen('clip','w') not available")
+    end
+    -- 3. Try reading back from clipboard via PowerShell
+    print("  Attempting clipboard read via PowerShell...")
+    local ok3, h3 = pcall(io.popen,
+      'powershell -NoProfile -Command "Get-Clipboard"')
+    if ok3 and h3 then
+      local out = h3:read('*a')
+      h3:close()
+      print("  PowerShell Get-Clipboard: " .. (out and out:gsub('%s+$','') or "nil"))
+    else
+      print("  PowerShell read: not available")
+    end
+
   elseif target:sub(1,5) == "call:" then
     -- try calling a constructor and dump the instance: e.g. "call:TEdit"
     local cname = target:sub(6)
@@ -1056,14 +1141,28 @@ local function do_debug()
 
   print = orig_print
 
+  -- Full dump to console (no truncation)
+  orig_print("--- BEGIN DEBUG OUTPUT: " .. target .. " (" .. #buf .. " lines) ---")
+  for _,line in ipairs(buf) do orig_print(line) end
+  orig_print("--- END DEBUG OUTPUT ---")
+
+  -- Copy everything to clipboard via clip.exe
+  local full_text = "ExportTune Debug: " .. target .. "\n\n" ..
+    table.concat(buf, '\n') .. "\n"
+  local clipped = copy_to_clip(full_text)
+
+  -- ShowMessage: first 80 lines as preview
   local MAX = 80
-  local out = buf
+  local preview = buf
+  local note = ""
   if #buf > MAX then
-    out = {}
-    for i=1,MAX do out[i]=buf[i] end
-    out[#out+1] = "... (" .. (#buf-MAX) .. " more lines in console)"
+    preview = {}
+    for i=1,MAX do preview[i]=buf[i] end
+    note = "\n... (" .. (#buf-MAX) .. " more lines — see console)"
   end
-  ShowMessage("ExportTune - Debug: " .. target .. "\n\n" .. table.concat(out,'\n'))
+  local clip_note = clipped and "\n[Full output copied to clipboard]" or ""
+  ShowMessage("ExportTune - Debug: " .. target .. clip_note .. "\n\n" ..
+    table.concat(preview,'\n') .. note)
 end
 
 -- ── main entry point — dialog menu ────────────────────────────────────────────
