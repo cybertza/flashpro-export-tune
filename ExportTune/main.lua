@@ -8,6 +8,7 @@
 --
 
 local Constants = require("constants")
+require("utilities")
 
 local VERSION = "260421.1"
 
@@ -921,6 +922,7 @@ local INTERESTING_GLOBALS = {
   "Calibration","DatalogManager","SensorList","ErrorCodeList",
   "MainForm","Form","Screen","Owner",
   "Clipboard","TClipboard",
+  "dl_loaded","cal_loaded","utilities",
 }
 
 local function dump_global_val(label, val)
