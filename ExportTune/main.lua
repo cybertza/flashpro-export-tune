@@ -9,7 +9,7 @@
 
 local Constants = require("constants")
 
-local VERSION = "4.1"
+local VERSION = "260421.1"
 
 -- ── output path ───────────────────────────────────────────────────────────────
 
