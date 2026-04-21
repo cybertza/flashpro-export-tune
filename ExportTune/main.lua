@@ -239,14 +239,56 @@ end
 -- ── datalog helpers ───────────────────────────────────────────────────────────
 
 local SENSORS = {
-  "RPM","VSS","MAP","BP","TPlate","TPedal","AFM","AFM.v",
-  "IAT","ECT","IGN","CAM","CAMCMD",
-  "AF","AF.Corr","Wide","AFCMD",
-  "S.TRIM","L.TRIM","K.Level","K.Retard",
-  "INJ","DUTY","FuelP","BAT","Fuel Used"
+  -- Engine & airflow
+  "RPM","VSS","MAP","BP","TPlate","TPedal","AFM","AFM.v","AFM Hz",
+  "IAT","IAT2","ECT","ECT2","IGN","CAM","CAMCMD","EXCAM","PA",
+  -- Fuel trims & wideband
+  "AF","AF Bank 2","AF.Corr","Wide","Wide.V","AFCMD","AFCMD Bank 2",
+  "S.TRIM","L.TRIM","S.TRIM Bank 2","L.TRIM Bank 2","Trim",
+  "Fuel Status","Fuel Status Bank 2","Ethanol",
+  "INJ","INJ Bank 2","DUTY","DIFP","DIFPCMD","FuelP",
+  -- Valve / boost / emissions
+  "AIRC","EGR","Purge","VTS","SVS","WG","WGCMD","ACCL",
+  -- Knock
+  "K.Level","K.Retard","K.Retard.1","K.Retard.2","K.Retard.3","K.Retard.4",
+  "K.Control","Ign.Limit","K.Count","K.Count.1","K.Count.2","K.Count.3",
+  -- Vehicle dynamics
+  "Gear","G.Lat","G.Long","G.Z","Yaw",
+  "ABS.LF","ABS.RF","ABS.LR","ABS.RR",
+  "Clutch.Pos","Brake.Press","Steer Ang","Steer Trq",
+  -- Traction control
+  "TC.V","TC.ECUSlip","TC.R","TC.LF","TC.RF","TC.LR","TC.RR",
+  "TC.Slip","TC.Turn","TC.OverSlip","TC.Out",
+  -- Torque & AIRC management
+  "Trq Req","Act Trq","trq_max","airc_max","airc_red","airc_prot","airc_comp",
+  -- Electrical & thermal
+  "BAT","Oil.Press","CVT.Temp","Cat.T","Fuel Used","BC Duty",
 }
 
-local TS_SENSORS = {"RPM","AF","ECT","S.TRIM","L.TRIM","MAP","TPlate","IGN","AFM.v","K.Retard"}
+local TS_SENSORS = {
+  -- Core engine
+  "RPM","VSS","MAP","TPlate","TPedal","AFM.v","AFM","IAT","ECT","IGN",
+  "CAM","CAMCMD","EXCAM",
+  -- Fuel trims & wideband
+  "AF","AF Bank 2","AF.Corr","Wide","AFCMD",
+  "S.TRIM","L.TRIM","S.TRIM Bank 2","L.TRIM Bank 2","Fuel Status","Ethanol",
+  "INJ","DUTY","FuelP","DIFP",
+  -- Valve / boost / emissions
+  "EGR","WG","AIRC","Purge","VTS",
+  -- Knock (overall + per-cylinder)
+  "K.Level","K.Retard","K.Retard.1","K.Retard.2","K.Retard.3","K.Retard.4",
+  "K.Control","Ign.Limit","K.Count",
+  -- Vehicle dynamics
+  "Gear","G.Lat","G.Long","G.Z","Yaw",
+  "ABS.LF","ABS.RF","ABS.LR","ABS.RR",
+  "Clutch.Pos","Brake.Press","Steer Ang",
+  -- Traction control
+  "TC.V","TC.Slip","TC.Out","TC.ECUSlip",
+  -- Torque
+  "Trq Req","Act Trq",
+  -- Electrical & thermal
+  "BAT","Oil.Press","CVT.Temp","Cat.T","Fuel Used",
+}
 
 local function safe_sensor(name)
   local ok, s = pcall(function() return SensorList[name] end)
@@ -271,7 +313,21 @@ local function stats(dl, sensor)
   return {min=mn, max=mx, mean=sum/cnt}
 end
 
-local function dump_datalogs(verbose)
+local function ask_sample_count()
+  local input = InputQuery("ExportTune — Time-Series Resolution",
+    "Samples per log for the time-series export?\n\n" ..
+    "Higher = more detail, larger file.\n\n" ..
+    "  200   ~1 sample / 6 s   (original — very coarse)\n" ..
+    "  2000  ~1 sample / 0.6 s (recommended)\n" ..
+    "  5000  ~1 sample / 0.2 s (detailed)\n" ..
+    "  0     skip time-series\n\n" ..
+    "Enter number:", "2000")
+  if input == nil then return nil end       -- user cancelled
+  local n = math.floor(tonumber(input) or 2000)
+  return math.max(0, n)
+end
+
+local function dump_datalogs(verbose, max_samples)
   local count = DatalogManager:count()
   local dl_parts = {}
   for d=1,count do
@@ -305,29 +361,39 @@ local function dump_datalogs(verbose)
       end
     end
     if verbose then print(string.format("    Sensors: %d/%d", found, #SENSORS)) end
-    local step = math.max(1, math.floor(fc/200))
-    local ss   = {}
-    for _,sn in ipairs(TS_SENSORS) do ss[#ss+1] = safe_sensor(sn) end
+    local n_samples = (max_samples and max_samples > 0) and max_samples or 0
+    local step = n_samples > 0 and math.max(1, math.floor(fc / n_samples)) or (fc + 1)
+    -- Resolve which TS sensors are actually available in this log
+    local ts_names, ts_objs = {}, {}
+    for _,sn in ipairs(TS_SENSORS) do
+      local s = safe_sensor(sn)
+      if s then
+        ts_names[#ts_names+1] = sn
+        ts_objs[#ts_objs+1]   = s
+      end
+    end
     local ts = {}
     for f=1,fc,step do
       local ok_t, tv = pcall(function() return dl:timestamp(f) end)
       local row = {ok_t and num(tv) or "null"}
-      for _,s in ipairs(ss) do
-        if s then
-          local ok_v, rv = pcall(function() return dl:value(s,f) end)
-          row[#row+1] = ok_v and num(rv) or "null"
-        else
-          row[#row+1] = "null"
-        end
+      for _,s in ipairs(ts_objs) do
+        local ok_v, rv = pcall(function() return dl:value(s,f) end)
+        row[#row+1] = ok_v and num(rv) or "null"
       end
       ts[#ts+1] = '[' .. table.concat(row,',') .. ']'
     end
-    if verbose then print("    Time-series: " .. #ts .. " samples") end
+    -- Build ts_cols header: always starts with time_s
+    local col_list = {"time_s"}
+    for _,sn in ipairs(ts_names) do col_list[#col_list+1] = esc(sn) end
+    if verbose then
+      print(string.format("    Time-series: %d samples  step=%d  channels=%d",
+        #ts, step, #ts_names))
+    end
     dl_parts[#dl_parts+1] = '{"file":' .. esc(fname) ..
       ',"frames":' .. fc ..
       ',"length_s":' .. num(len) ..
       ',"sensors":{' .. table.concat(sp,',') .. '}' ..
-      ',"ts_cols":["time_s","RPM","AF","ECT","S.TRIM","L.TRIM","MAP","TPlate","IGN","AFM.v","K.Retard"]' ..
+      ',"ts_cols":[' .. table.concat(col_list,',') .. ']' ..
       ',"ts":[' .. table.concat(ts,',') .. ']}'
   end
   return '"count":' .. count .. ',"logs":[' .. table.concat(dl_parts,',') .. ']'
@@ -665,13 +731,13 @@ local function write_dtcs(f)
   print("")
 end
 
-local function write_datalog(f, verbose)
+local function write_datalog(f, verbose, max_samples)
   local dl_count = DatalogManager:count()
   print(string.format("Datalogs loaded: %d", dl_count))
   if dl_count == 0 then
     print("  (none) -- Datalog menu -> Open -> select .fpdl, then re-run")
   end
-  local ok, dljson = pcall(dump_datalogs, verbose)
+  local ok, dljson = pcall(dump_datalogs, verbose, max_samples)
   if ok then
     f:write('"datalog":{' .. dljson .. '}\n')
   else
@@ -700,6 +766,8 @@ end
 
 local function do_full_export()
   banner("Full Export")
+  local max_samples = ask_sample_count()
+  if max_samples == nil then print("Cancelled."); return end
   local OUT = get_out_file("tune_export")
   print("Output: " .. OUT .. "\n")
   local f = io.open(OUT, "w")
@@ -710,7 +778,7 @@ local function do_full_export()
   write_header(f)
   write_calibration(f, true)
   write_dtcs(f)
-  write_datalog(f, true)
+  write_datalog(f, true, max_samples)
   f:write('}\n')
   f:close()
   done(OUT)
@@ -732,6 +800,8 @@ end
 
 local function do_export_datalog()
   banner("Export Datalog Only")
+  local max_samples = ask_sample_count()
+  if max_samples == nil then print("Cancelled."); return end
   local OUT = get_out_file("tune_export_datalog")
   print("Output: " .. OUT .. "\n")
   local f = io.open(OUT, "w")
@@ -744,7 +814,7 @@ local function do_export_datalog()
   end
   f:write('"table_count":0,"tables":[],\n')
   write_dtcs(f)
-  write_datalog(f, true)
+  write_datalog(f, true, max_samples)
   f:write('}\n')
   f:close()
   done(OUT)
