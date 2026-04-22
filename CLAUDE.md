@@ -16,7 +16,7 @@ reloading the plugin also seems to work.
 deploy.bat
 
 # From bash:
-cp ExportTune/main.lua "$LOCALAPPDATA/Hondata/FlashPro/Plugins/ExportTune/main.lua"
+cp ExportTune/*.lua "$LOCALAPPDATA/Hondata/FlashPro/Plugins/ExportTune/"
 cp ExportTune/info.xml "$LOCALAPPDATA/Hondata/FlashPro/Plugins/ExportTune/info.xml"
 ```
 
@@ -28,9 +28,20 @@ Live plugin folder: `C:\Users\<you>\AppData\Local\Hondata\FlashPro\Plugins\Expor
 
 ## Architecture
 
-### Plugin (`ExportTune/main.lua`)
+### Plugin (`ExportTune/`)
 
-Single-file Lua plugin. Entry point is `main()`, called by FlashPro when the user clicks the plugin menu item. Presents an `InputQuery` dialog menu (options 1–7).
+Modular Lua plugin. Entry point is `main()` in `main.lua`. Presents an `InputQuery` dialog menu (options 1–8). Each concern lives in its own file — all files are deployed together.
+
+| File | Responsibility |
+|------|----------------|
+| `main.lua` | Entry point, menu, event callbacks, path/banner helpers |
+| `json.lua` | `esc()`, `num()`, `json.decode()` — no FlashPro API deps |
+| `export_cal.lua` | Calibration + DTC serialisers, key-param summary |
+| `export_datalog.lua` | Sensor lists, stats, time-series export |
+| `import.lua` | `run()`, `apply_change()`, name→index cache |
+| `health.lua` | Health check with threshold warnings |
+| `probe.lua` | **Option 8** — systematic API surface test (VCL, dialogs, utilities, Device, ECU) |
+| `debug.lua` | Global dump, VCL introspection, clipboard helper |
 
 **Key globals provided by FlashPro:**
 - `Calibration` — `.loaded()`, `.filename()`, `.table(i)`, `.tablecount()`, `.update()`
@@ -39,21 +50,21 @@ Single-file Lua plugin. Entry point is `main()`, called by FlashPro when the use
 - `ErrorCodeList` — `.count()`, `.code(i)`
 - `Constants` — from `require("constants")` — provides `Constants.TableKind.*` and `Constants.UnitName[]`
 - VCL constructors available: `TEdit`, `TPanel`, `TButton`, `TRadioButton`, `TCheckBox`, `TGroupBox`, `TText` (callable via `MT.__call`)
-- **Not available:** `TForm`, `TMemo`, `TListBox`, `TComboBox`, `TClipboard`, `Clipboard`, `utilities`
+- **Not yet confirmed:** `TForm`, `TMemo`, `TListBox`, `TComboBox`, `TClipboard` — run option 8 (API Probe) to test
 
-**Clipboard:** No VCL clipboard API is exposed. Use `io.popen('clip', 'w')` to write to the Windows clipboard — see `copy_to_clip()`.
+**`package.path` includes the plugin folder** — so any `.lua` file deployed alongside `main.lua` is loadable with `require("modulename")`.
 
-**No external Lua libraries.** The plugin includes its own minimal JSON parser (`json.decode`) since FlashPro provides no JSON built-in.
+**utilities module:** `require("utilities")` loads `Scripts/utilities.lua` and injects `table_print`, `read_calibration_table`, `read_calibration_tablename` as globals. Called in `main.lua` for the side-effect.
+
+**Clipboard:** Use `io.popen('clip', 'w')` — see `debug.copy_to_clip()`.
 
 **Data flow for export:**
 1. `write_header()` → version/timestamp preamble
-2. `write_calibration()` → iterates `Calibration:table(i)` for all tables, dispatches to `dump_parameter/dump_index/dump_1d/dump_2d/dump_3d`
-3. `write_dtcs()` → iterates `ErrorCodeList`
-4. `write_datalog()` → for each loaded log: stats via `stats()` (subsampled), then time-series at user-chosen resolution via `dump_datalogs(verbose, max_samples)`
+2. `export_cal.write_calibration()` → iterates `Calibration:table(i)`, dispatches per kind
+3. `export_cal.write_dtcs()` → iterates `ErrorCodeList`
+4. `export_dl.write_datalog()` → per log: stats (subsampled), then time-series at user resolution
 
-**Time-series resolution** is asked via `InputQuery` at export time (default 2000 samples). The step is `math.floor(framecount / max_samples)`. `ts_cols` is built dynamically from whichever `TS_SENSORS` are present in the log.
-
-**Import flow:** `run_import(dry_run)` reads `tune_import.json` from the calibration directory, decodes with `json.decode`, then calls `apply_change()` per entry. `build_cal_index()` caches a name→table-index map (invalidated by `OnCalibrationOpen/New`).
+**Import flow:** `import_mod.run(dry_run, cal_dir)` reads `tune_import.json`, decodes JSON, calls `apply_change()` per entry. Supports `Parameter`, `Table1D`, `Table2D`, `Table3D`. Cache cleared by event callbacks.
 
 ### Analyzer (`tools/tune_analyzer.py`)
 
